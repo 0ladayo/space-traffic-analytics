@@ -1,3 +1,0 @@
-runtime: python312
-service: default
-instance_class: F4
