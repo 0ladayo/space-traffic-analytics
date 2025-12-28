@@ -33,3 +33,9 @@ variable "bigquery_dataset_id" {
     description = "The ID of the BigQuery dataset to store the extracted telemetry tables"
 
 }
+
+variable "service_account_id" {
+    type = string
+    description = "The ID for the service account used by the data ingestion pipeline."
+
+}
