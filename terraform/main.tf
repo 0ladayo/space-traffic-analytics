@@ -56,7 +56,8 @@ resource "google_project_service" "required_apis" {
   for_each = toset([
     "cloudbuild.googleapis.com", "secretmanager.googleapis.com",
     "cloudfunctions.googleapis.com", "run.googleapis.com",
-    "artifactregistry.googleapis.com", "cloudresourcemanager.googleapis.com"
+    "artifactregistry.googleapis.com", "cloudresourcemanager.googleapis.com",
+    "cloudscheduler.googleapis.com"
   ])
   service            = each.key
   disable_on_destroy = false
@@ -87,6 +88,7 @@ resource "google_cloudbuild_trigger" "ingestion_build_trigger" {
     _LOCATION              = var.gcp_region
     _PROJECT_ID            = var.gcp_project_id
     _SERVICE_ACCOUNT_EMAIL = google_service_account.service_account.email
+    _BUCKET_URL            = "gs://${google_storage_bucket.staging_bucket.name}"
   }
 
 }
@@ -100,5 +102,34 @@ resource "google_project_iam_member" "pipeline_sa_functions_developer" {
 resource "google_project_iam_member" "pipeline_sa_user" {
   project = var.gcp_project_id
   role    = "roles/iam.serviceAccountUser"
+  member  = "serviceAccount:${google_service_account.service_account.email}"
+}
+
+resource "google_cloud_scheduler_job" "job" {
+  name             = "ingestion-cron-job"
+  schedule         = "0 0 * * *"
+  time_zone        = "Europe/London"
+  attempt_deadline = "320s"
+
+  retry_config {
+    retry_count = 1
+  }
+
+  http_target {
+    http_method = "GET"
+    uri         = "https://${var.gcp_region}-${var.gcp_project_id}.cloudfunctions.net/orbital-telemetry-pipeline/"
+    oidc_token {
+      service_account_email = google_service_account.service_account.email
+      audience              = "https://${var.gcp_region}-${var.gcp_project_id}.cloudfunctions.net/orbital-telemetry-pipeline"
+    }
+    headers = {
+      "Content-Type" = "application/json"
+    }
+  }
+}
+
+resource "google_project_iam_member" "scheduler_invoker" {
+  project = var.gcp_project_id
+  role    = "roles/run.invoker"
   member  = "serviceAccount:${google_service_account.service_account.email}"
 }

@@ -15,5 +15,6 @@ steps:
   - --timeout=540
   - --ingress-settings=internal-only
   - --service-account=${_SERVICE_ACCOUNT_EMAIL}
+  - --set-env-vars=DESTINATION__FILESYSTEM__BUCKET_URL=${_BUCKET_URL}
 options:
   logging: CLOUD_LOGGING_ONLY
