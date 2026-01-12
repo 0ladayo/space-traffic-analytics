@@ -5,7 +5,7 @@ import functions_framework
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
-logging.info('script started ...')
+logging.info('Ingestion Script started ...')
 
 
 @dlt.resource(table_name = 'orbital_satellites_data', write_disposition = 'replace', file_format = 'parquet')
@@ -43,9 +43,9 @@ def main(request):
         pipeline = dlt.pipeline(pipeline_name = 'orbital_telemetry_pipeline', destination = 'bigquery', dataset_name = "orbital_satellites_dataset",
         staging = 'filesystem')
         load_info = pipeline.run(load_satellites_data)
-        logging.info(f'pipeline finished successfully. Info: {load_info}')
+        logging.info(f'Ingestion pipeline finished successfully. Info: {load_info}')
         return 'Success', 200
 
     except Exception:
-        logging.exception('pipeline crashed')
+        logging.exception('Ingestion pipeline crashed')
         return 'Failed', 500
