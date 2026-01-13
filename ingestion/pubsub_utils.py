@@ -6,7 +6,7 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 
 project_id = os.environ['PROJECT__ID']
 
-topic_name = os.environ['_PUBSUB_TOPIC']
+topic_name = os.environ['PUBSUB__TOPIC']
 
 def publish_message():
 
