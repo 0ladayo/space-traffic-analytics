@@ -88,6 +88,7 @@ resource "google_cloudbuild_trigger" "ingestion_build_trigger" {
     _PROJECT_ID            = var.gcp_project_id
     _SERVICE_ACCOUNT_EMAIL = google_service_account.service_account.email
     _BUCKET_URL            = "gs://${google_storage_bucket.staging_bucket.name}"
+    _PUBSUB_TOPIC          = var.pubsub_topic
   }
 
 }
@@ -131,4 +132,23 @@ resource "google_project_iam_member" "scheduler_invoker" {
   project = var.gcp_project_id
   role    = "roles/run.invoker"
   member  = "serviceAccount:${google_service_account.service_account.email}"
+}
+
+resource "google_pubsub_topic" "ingestion_complete_topic" {
+  name = var.pubsub_topic
+
+  labels = {
+    project   = "space-traffic-analytics"
+    stage     = "ingestion"
+    data_type = "orbital-elements"
+  }
+
+  message_retention_duration = "86400s"
+}
+
+resource "google_pubsub_topic_iam_member" "member" {
+  project = var.gcp_project_id
+  topic = google_pubsub_topic.ingestion_complete_topic.name
+  role = "roles/pubsub.publisher"
+  member = "serviceAccount:${google_service_account.service_account.email}"
 }

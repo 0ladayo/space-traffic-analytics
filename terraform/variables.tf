@@ -39,3 +39,9 @@ variable "service_account_id" {
   description = "The ID for the service account used by the data ingestion pipeline."
 
 }
+
+variable "pubsub_topic" {
+  type        = string
+  description = "The name of the Pub/Sub topic that triggers the transformation pipeline."
+
+}
