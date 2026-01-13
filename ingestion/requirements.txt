@@ -2,3 +2,4 @@ dlt[bigquery]>=1.20.0
 functions-framework>=3.10.0
 pandas>=2.3.3
 google-cloud-bigquery-storage>=2.36.0
+google-cloud-pubsub>=2.34.0

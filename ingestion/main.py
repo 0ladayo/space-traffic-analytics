@@ -1,7 +1,10 @@
 import dlt
 import pandas as pd
 import logging
+import pubsub_utils
 import functions_framework
+
+
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
@@ -44,6 +47,7 @@ def main(request):
         staging = 'filesystem')
         load_info = pipeline.run(load_satellites_data)
         logging.info(f'Ingestion pipeline finished successfully. Info: {load_info}')
+        pubsub_utils.publish_message()
         return 'Success', 200
 
     except Exception:
