@@ -31,7 +31,7 @@ def get_position(sat_data):
 
     path = []
 
-    for t_obj, lat, lon, alt in zip(timeVector, lats, lons):
+    for t_obj, lat, lon in zip(timeVector, lats, lons):
         path.append({
             'timestamp': str(t_obj.utc_datetime()), 
             'lat': round(float(lat), 2),
