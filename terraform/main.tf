@@ -177,3 +177,27 @@ resource "google_cloudbuild_trigger" "transformation_build_trigger" {
   }
 
 }
+
+resource "google_project_service" "eventarc" {
+  project            = var.gcp_project_id
+  service            = "eventarc.googleapis.com"
+  disable_on_destroy = false
+}
+
+resource "google_project_service" "cloud_run" {
+  project            = var.gcp_project_id
+  service            = "run.googleapis.com"
+  disable_on_destroy = false
+}
+
+resource "google_project_iam_member" "sa_eventarc_admin" {
+  project = var.gcp_project_id
+  role    = "roles/eventarc.admin"
+  member  = "serviceAccount:${google_service_account.service_account.email}"
+}
+
+resource "google_project_iam_member" "sa_user" {
+  project = var.gcp_project_id
+  role    = "roles/iam.serviceAccountUser"
+  member  = "serviceAccount:${google_service_account.service_account.email}"
+}
