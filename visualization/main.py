@@ -9,8 +9,10 @@ import json
 import os
 import sys
 import logging
+import io  
 import numpy as np
 from datetime import datetime, timezone
+from google.cloud import storage  
 
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -18,10 +20,9 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 
 PROJECT_ID = os.environ['PROJECT_ID']
 BIGQUERY_DATASET = os.environ['BIGQUERY_DATASET']
-if os.path.exists('/tmp'):
-    CACHE_FILE = '/tmp/orbital_data_cache.pkl'
-else:
-    CACHE_FILE = 'orbital_data_cache.pkl'
+GCS_BUCKET_NAME = os.environ['GCS_BUCKET_NAME'] 
+CACHE_FILENAME = 'orbital_data_cache.pkl'
+
 
 df_main = None
 df_kpi = None
@@ -31,18 +32,26 @@ search_options = []
 def load_data_smart():
     global df_main, df_kpi, timestamps, search_options
     
-    if df_main is not None: return 
+    if df_main is not None: 
+        logging.info("Data found in RAM. Skipping load.")
+        return 
 
     today_utc = datetime.now(timezone.utc).date()
     
-    if os.path.exists(CACHE_FILE):
-        logging.info(f"Checking disk cache: {CACHE_FILE}")
+    storage_client = storage.Client()
+    bucket = storage_client.bucket(GCS_BUCKET_NAME)
+    blob = bucket.blob(CACHE_FILENAME)
+    
+    if blob.exists():
+        logging.info(f"Checking GCS cache: {CACHE_FILENAME}")
         try:
-            cached_data = pd.read_pickle(CACHE_FILE)
+            pickle_bytes = blob.download_as_bytes()
+
+            cached_data = pd.read_pickle(io.BytesIO(pickle_bytes))
             cached_ts = cached_data['timestamps']
             
             if len(cached_ts) > 0 and cached_ts[0].date() == today_utc:
-                logging.info("Cache is fresh. Loading into RAM.")
+                logging.info("GCS Cache is fresh. Loading into RAM.")
                 df_main = cached_data['main']
                 df_kpi = cached_data['kpi']
                 timestamps = cached_ts
@@ -50,11 +59,9 @@ def load_data_smart():
                 search_options = [{'label': name, 'value': name} for name in unique_names]
                 return
             else:
-                logging.warning("Cache is stale. Refreshing...")
-                os.remove(CACHE_FILE)
+                logging.warning("GCS Cache is stale. Will refresh from BigQuery...")
         except Exception as e:
-            logging.error(f"Cache read error: {e}")
-            if os.path.exists(CACHE_FILE): os.remove(CACHE_FILE)
+            logging.error(f"GCS Cache read error: {e}")
 
     logging.info("Downloading fresh data from BigQuery...")
     
@@ -73,62 +80,87 @@ def load_data_smart():
         timestamps_raw = [x['timestamp'] for x in df_main['Trajectory'].iloc[0]]
         timestamps = pd.to_datetime(timestamps_raw, utc=True)
         
-        pd.to_pickle({'main': df_main, 'kpi': df_kpi, 'timestamps': timestamps}, CACHE_FILE)
-        logging.info("Download complete and saved to cache.")
+        logging.info("Saving new data to GCS...")
+        data_to_store = {'main': df_main, 'kpi': df_kpi, 'timestamps': timestamps}
+        
+ 
+        buffer = io.BytesIO()
+        pd.to_pickle(data_to_store, buffer)
+        buffer.seek(0) 
+        
+
+        blob.upload_from_file(buffer, content_type='application/octet-stream')
+        logging.info("Upload to GCS complete.")
         
         unique_names = sorted(df_main['Object_Name'].astype(str).unique())
         search_options = [{'label': name, 'value': name} for name in unique_names]
         
     except Exception as e:
         logging.critical(f"Critical Data Load Failure: {e}")
-        sys.exit(1)
 
-load_data_smart()
+        sys.exit(1)
 
 app = dash.Dash(__name__, external_stylesheets=[dbc.themes.LUX])
 server = app.server
 
-owner_counts = df_main['Owner'].value_counts().head(10).reset_index()
-owner_counts.columns = ['Owner', 'Count']
-fig_owners = px.bar(owner_counts, x='Count', y='Owner', orientation='h', text_auto=True)
-fig_owners.update_layout(
-    template="plotly_white",
-    title=dict(text="<b>Owner Distribution</b>", x=0.02, y=0.98, font=dict(size=20, color="black")),
-    yaxis={'categoryorder':'total ascending'},
-    margin={"r":20,"t":60,"l":20,"b":20}, 
-    height=600 
-)
-fig_owners.update_traces(marker_color='#3b82f6') 
-
-df_alt = df_main[df_main['Avg_Altitude'] < 40000]
-fig_alt = px.histogram(df_alt, x="Avg_Altitude", nbins=50)
-fig_alt.update_layout(
-    template="plotly_white",
-    title=dict(text="<b>Altitude Distribution (km)</b>", x=0.02, font=dict(size=16, color="black")),
-    margin={"r":20,"t":50,"l":20,"b":20},
-    height=350
-)
-fig_alt.update_traces(marker_color='#3b82f6') 
-
-fig_inc = px.histogram(df_main, x="Inclination", nbins=50)
-fig_inc.update_layout(
-    template="plotly_white",
-    title=dict(text="<b>Inclination Distribution (°)</b>", x=0.02, font=dict(size=16, color="black")),
-    margin={"r":20,"t":50,"l":20,"b":20},
-    height=350
-)
-fig_inc.update_traces(marker_color='#3b82f6')
+@server.route('/_ah/warmup')
+def warmup():
+    logging.info("Warmup request received.")
+    try:
+        load_data_smart()
+        return "Warmup successful", 200
+    except Exception as e:
+        logging.error(f"Warmup failed: {e}")
+        return "Warmup failed", 500
 
 def get_current_time_index():
-    if len(timestamps) == 0: return 0
+    if not timestamps or len(timestamps) == 0: return 0
     now_utc = pd.Timestamp.now(tz='UTC')
     time_diffs = [abs((ts - now_utc).total_seconds()) for ts in timestamps]
     return time_diffs.index(min(time_diffs))
 
+
 def serve_layout():
+
+    if df_main is None:
+        load_data_smart()
+
     default_time_index = get_current_time_index()
     kpi = df_kpi.iloc[0]
 
+    
+    owner_counts = df_main['Owner'].value_counts().head(10).reset_index()
+    owner_counts.columns = ['Owner', 'Count']
+    fig_owners = px.bar(owner_counts, x='Count', y='Owner', orientation='h', text_auto=True)
+    fig_owners.update_layout(
+        template="plotly_white",
+        title=dict(text="<b>Owner Distribution</b>", x=0.02, y=0.98, font=dict(size=20, color="black")),
+        yaxis={'categoryorder':'total ascending'},
+        margin={"r":20,"t":60,"l":20,"b":20}, 
+        height=600 
+    )
+    fig_owners.update_traces(marker_color='#3b82f6') 
+
+    df_alt = df_main[df_main['Avg_Altitude'] < 40000]
+    fig_alt = px.histogram(df_alt, x="Avg_Altitude", nbins=50)
+    fig_alt.update_layout(
+        template="plotly_white",
+        title=dict(text="<b>Altitude Distribution (km)</b>", x=0.02, font=dict(size=16, color="black")),
+        margin={"r":20,"t":50,"l":20,"b":20},
+        height=350
+    )
+    fig_alt.update_traces(marker_color='#3b82f6') 
+
+    fig_inc = px.histogram(df_main, x="Inclination", nbins=50)
+    fig_inc.update_layout(
+        template="plotly_white",
+        title=dict(text="<b>Inclination Distribution (°)</b>", x=0.02, font=dict(size=16, color="black")),
+        margin={"r":20,"t":50,"l":20,"b":20},
+        height=350
+    )
+    fig_inc.update_traces(marker_color='#3b82f6')
+
+    # --- UI Layout ---
     sidebar = html.Div(
         [
             html.H2("🛰️", className="display-4 text-center"),
@@ -241,6 +273,9 @@ def update_map(time_index, search_name):
     if time_index is None: time_index = get_current_time_index()
     
     if df_main is None: load_data_smart()
+
+    if time_index >= len(timestamps):
+        time_index = 0
 
     ts = timestamps[time_index]
     time_str = ts.strftime("%H:%M UTC")
