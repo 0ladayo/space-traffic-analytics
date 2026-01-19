@@ -5,7 +5,7 @@ instance_class: F4
 automatic_scaling:
   max_instances: 3  
 
-entrypoint: gunicorn -b :$PORT main:server --workers 1 --threads 4 --timeout 120
+entrypoint: gunicorn -b :$PORT main:server --workers 1 --threads 1 --timeout 120
 
 env_variables:
   PROJECT_ID: "PROJECT_ID_PLACEHOLDER"

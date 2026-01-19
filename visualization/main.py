@@ -114,7 +114,8 @@ def warmup():
         return "Warmup failed", 500
 
 def get_current_time_index():
-    if not timestamps or len(timestamps) == 0: return 0
+    if timestamps is None or len(timestamps) == 0: 
+        return 0
     now_utc = pd.Timestamp.now(tz='UTC')
     time_diffs = [abs((ts - now_utc).total_seconds()) for ts in timestamps]
     return time_diffs.index(min(time_diffs))
